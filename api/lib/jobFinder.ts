@@ -602,26 +602,27 @@ function ensureCompanyLink({
 
 function buildFallbackJobs(queries: JobQuery[], location?: string, remote?: boolean): JobPosting[] {
   const locationLabel = remote ? 'Remote' : location || 'Flexible location'
-  return queries.map((query, index) => {
-    const company = pickSampleCompany(query, index)
-    const { url, source } = buildSearchLink({
-      query,
-      company,
-      location,
-      remote,
-      seed: hashString(`${query.title}:${query.query}:${index}`),
+  const resultsPerQuery = Math.max(SEARCH_PROVIDERS.length, 5)
+  const now = Date.now()
+
+  return queries.flatMap((query, queryIndex) => {
+    return Array.from({ length: resultsPerQuery }).map((_, offset) => {
+  const company = pickSampleCompany(query, queryIndex + offset)
+  const seed = hashString(`${query.title}:${query.query}:${queryIndex}:${offset}`)
+  const provider = SEARCH_PROVIDERS[Math.abs(seed) % SEARCH_PROVIDERS.length]
+      const url = provider.buildUrl({ query, company, location, remote })
+      return {
+        id: `fallback-${queryIndex}-${offset}-${now}`,
+        title: `${query.title} at ${company}`,
+        company,
+        location: locationLabel,
+        salary: undefined,
+        description: `Browse ${company} and peer organisations hiring for ${query.title}. This search stays focused on ${remote ? 'remote-first' : locationLabel} roles.`,
+        url,
+        source: provider.name,
+        postedAt: undefined,
+      }
     })
-    return {
-      id: `fallback-${index}-${Date.now()}`,
-      title: query.title,
-      company,
-      location: locationLabel,
-      salary: undefined,
-      description: `Browse current ${query.title} openings at ${company} and similar employers. This search stays focused on ${remote ? 'remote' : locationLabel} opportunities.`,
-      url,
-      source,
-      postedAt: undefined,
-    }
   })
 }
 
@@ -643,16 +644,17 @@ export async function generateJobsWithGemini({
   const locationLine = location?.trim() ? location.trim() : 'No explicit preference'
   const remoteLine = remote ? 'Remote or remote-first roles only' : 'No remote requirement specified'
 
-  const instruction = `You are an expert technical recruiter. Based on the search directives below, recommend up to ${Math.min(
-    queries.length * 2,
-    9,
-  )} appealing job opportunities. Reply strictly in minified JSON with the schema:
+  const instruction = `You are an expert technical recruiter. Based on the search directives below, recommend at least ${Math.min(
+    Math.max(queries.length * 3, 12),
+    20,
+  )} appealing job opportunities (include more if relevant). Reply strictly in minified JSON with the schema:
 {"jobs": [{"title": string, "company": string, "location": string, "salary": string?, "description": string, "link": string, "source": string?}]}.
 Hard requirements:
 - Every link must be an https URL to a reputable job board search or company careers page aligned with the role (LinkedIn, Indeed, Wellfound, Greenhouse, Lever, Ashby, JobStreet, Glassdoor, Prosple, etc.).
 - If you do not know an exact posting, construct a pre-filled job search URL that includes the relevant keywords and location.
 - \`company\` must be the name of a specific employer (e.g. "Canva", "HubSpot"). Generic phrases like "Various companies", "Multiple employers", or "N/A" are strictly forbidden.
 - Descriptions should be concise (<= 55 words), benefit-led, and specific to the role.
+- Avoid duplicates—each job should reference a distinct combination of company + link unless it's a different office/region.
 - Do not emit markdown, explanations, or additional keys.`
 
   const prompt = `${instruction}\n\nSearch directives:\n${directives}\n\nPreferred location: ${locationLine}\nRemote preference: ${remoteLine}`
