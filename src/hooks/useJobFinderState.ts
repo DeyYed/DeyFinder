@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { type AnalysisResult, type JobPosting } from '../types'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:5174'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 const JOBS_PER_PAGE = 6
 
 export function useJobFinderState() {
@@ -221,7 +221,7 @@ export function useJobFinderState() {
       console.error(caughtError)
       let message = 'Unexpected error while analyzing resume. Please try again.'
       if (caughtError instanceof TypeError && caughtError.message === 'Failed to fetch') {
-        message = `Cannot reach the JobFinder API. Start the server with \`npm run server\` (or \`npm run dev:full\`) and confirm it is available at ${API_BASE_URL}.`
+        message = 'Cannot reach the JobFinder API. Confirm your deployment or `vercel dev` session is running and VITE_API_BASE_URL is configured if needed.'
       } else if (caughtError instanceof Error && caughtError.message) {
         message = caughtError.message
       }

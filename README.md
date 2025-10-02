@@ -1,6 +1,6 @@
 # JobFinder – AI-powered job discovery
 
-JobFinder pairs a sleek, responsive React experience with a lightweight Express API to turn any resume into a personalized shortlist of live roles. Upload a PDF, DOCX, or TXT resume and Gemini Flash 2.5 distills your strengths, keywords, and recommended search strategies. The backend then scouts the web (via RapidAPI’s JSearch) for matching openings and pipes them straight back into the interface with deep links.
+JobFinder pairs a sleek, responsive React experience with Vercel serverless functions to turn any resume into a personalized shortlist of live roles. Upload a PDF, DOCX, or TXT resume and Gemini Flash 2 distills your strengths, keywords, and recommended search strategies. The backend then synthesises curated job-board searches and hands them straight back to the interface with deep links.
 
 ## ✨ Features
 
@@ -13,7 +13,7 @@ JobFinder pairs a sleek, responsive React experience with a lightweight Express 
 ## 🧱 Tech stack
 
 - **Frontend:** React 19 + TypeScript + Vite, Tailwind CSS 4
-- **Backend:** Express 4 with Google Generative AI SDK powering both resume insights and job discovery
+- **Backend:** Vercel serverless Node handlers powered by the Google Generative AI SDK
 - **Parsing:** `pdf-parse` for PDFs, `mammoth` for DOCX, native decoders for TXT
 
 ## 🚀 Getting started
@@ -39,31 +39,25 @@ Copy-Item .env.example .env
 
 | Variable | Description |
 | --- | --- |
-| `API_PORT` | Port for the Express API (defaults to `5174`). |
-| `CLIENT_ORIGIN` | Allowed origins for CORS, comma-separated. For local dev keep `http://localhost:5173`. |
-| `GEMINI_API_KEY` | Required. Create a Gemini API key in Google AI Studio and enable the **Gemini Flash 2.5** model. |
-| `GEMINI_MODEL` | Model identifier (defaults to `gemini-2.0-flash`). |
-| – | – |
-
-You can point the frontend at a remote API by setting `VITE_API_URL` (e.g. `https://yourdomain.com`). Otherwise it targets the local Express server. If the UI shows “Cannot reach the JobFinder API…”, ensure `npm run server` (or `npm run dev:full`) is running and that the port matches `VITE_API_URL`.
+| `GEMINI_API_KEY` | **Required.** Create a Gemini API key in Google AI Studio and enable the Flash / Flash-Lite models. |
+| `GEMINI_MODEL` | Optional. Overrides the default `gemini-2.0-flash`. |
+| `VITE_API_BASE_URL` | Optional. Base URL for the serverless API (e.g. `http://localhost:3000` when running `vercel dev`). Leave unset for same-origin calls in production. |
 
 ### 4. Run the stack
 
-Launch both the API and Vite dev server together:
+1. Start the Vite dev server:
 
-```powershell
-npm run dev:full
-```
+  ```powershell
+  npm run dev
+  ```
 
-Or start them independently:
+2. In another terminal, launch the Vercel serverless runtime (requires the Vercel CLI — `npm install -g vercel`):
 
-```powershell
-npm run server
-# in a second terminal
-npm run dev
-```
+  ```powershell
+  vercel dev
+  ```
 
-The frontend runs on `http://localhost:5173`, while the API listens on `http://localhost:5174` by default.
+  By default this serves API routes from `http://localhost:3000`. Set `VITE_API_BASE_URL=http://localhost:3000` in your `.env` so the frontend forwards requests correctly. For production deployments the API runs alongside the static build, so the variable can be omitted.
 
 ### 5. Build for production
 
@@ -71,15 +65,14 @@ The frontend runs on `http://localhost:5173`, while the API listens on `http://l
 npm run build
 ```
 
-Deploy the contents of `dist/` behind any static host and run the Express server (e.g. with a process manager such as PM2 or a serverless adapter).
+Deploy via Vercel (recommended) so the static build and serverless functions ship together. Pushing to a connected Git repository or running `vercel` from the CLI will provision both automatically.
 
 ## 🔌 API surface
 
 | Endpoint | Method | Body | Description |
 | --- | --- | --- | --- |
-| `/api/health` | GET | – | Health check returning model readiness. |
-| `/api/analyze-resume` | POST | `{ fileName, fileType, base64Data, customPrompt }` | Parses the resume, calls Gemini Flash 2.5, and returns structured insights. |
-| `/api/jobs/search` | POST | `{ queries: JobQuery[], location? }` | Asks Gemini to craft role suggestions and job-board search links. Falls back to deterministic LinkedIn searches if Gemini is unavailable. |
+| `/api/analyze-resume` | POST | `{ fileName, fileType, base64Data, customPrompt }` | Parses the resume, calls Gemini Flash 2, and returns structured insights plus suggested search queries. |
+| `/api/jobs/search` | POST | `{ queries: JobQuery[], location?, remote? }` | Asks Gemini to craft role suggestions and job-board search links. Falls back to deterministic LinkedIn searches if Gemini is unavailable. |
 
 `JobQuery` objects look like:
 
@@ -93,8 +86,8 @@ Deploy the contents of `dist/` behind any static host and run the Express server
 ## 📝 Notes & tips
 
 - Keep resume files under **5 MB**. Larger files are rejected client-side.
-- Only PDF, DOCX, and TXT files are supported today. Extend `extractResumeText` in `server/index.js` to add more formats.
-- When shipping to production, host the frontend and backend under the same domain or update `VITE_API_URL` + `CLIENT_ORIGIN` accordingly.
+- Only PDF, DOCX, and TXT files are supported today. Extend `extractResumeText` in `api/lib/jobFinder.ts` to add more formats.
+- For local development, export `VITE_API_BASE_URL` so the frontend knows where to reach your serverless functions. In production, deploy both together on Vercel for same-origin requests.
 - Gemini requests are bounded to the first ~8 K characters of the resume to stay within context limits while remaining performant.
 
 ## ✅ Roadmap ideas
