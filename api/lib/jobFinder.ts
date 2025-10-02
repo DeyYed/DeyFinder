@@ -157,19 +157,267 @@ function synthesiseSearchUrl(query: JobQuery, location?: string, remote?: boolea
   return `https://www.linkedin.com/jobs/search/?${params.toString()}`
 }
 
+function toTitleCase(slug: string) {
+  return slug
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ')
+}
+
+function isGenericCompanyName(name: string) {
+  const normalised = name.trim().toLowerCase()
+  if (!normalised) return true
+  if (normalised.length <= 2) return true
+
+  const phrases = [
+    'various companies',
+    'various employers',
+    'multiple companies',
+    'multiple employers',
+    'several companies',
+    'several employers',
+    'numerous companies',
+    'numerous employers',
+    'diverse companies',
+    'diverse employers',
+    'leading company',
+    'leading employer',
+    'top company',
+    'top employer',
+    'major company',
+    'major employer',
+    'global company',
+    'global employer',
+    'confidential company',
+    'confidential employer',
+    'stealth company',
+    'stealth employer',
+  ]
+  if (phrases.some((phrase) => normalised.includes(phrase))) return true
+
+  if (/\b(n\/a|na|tbd|tba|unknown|unspecified|not provided|not specified)\b/.test(normalised)) {
+    return true
+  }
+
+  if (/^(company|employer|organisation|organization)$/i.test(normalised)) {
+    return true
+  }
+
+  return false
+}
+
+function deriveCompanyFromLink(link: string) {
+  try {
+    const url = new URL(link)
+    const host = url.hostname.toLowerCase()
+    const pathSegments = url.pathname.split('/').filter(Boolean)
+
+    if (host.includes('greenhouse.io')) {
+      return pathSegments[0] ? toTitleCase(pathSegments[0]) : undefined
+    }
+
+    if (host.includes('lever.co')) {
+      return pathSegments[0] ? toTitleCase(pathSegments[0]) : undefined
+    }
+
+    if (host.includes('ashbyhq.com')) {
+      return pathSegments[0] ? toTitleCase(pathSegments[0]) : undefined
+    }
+
+    if (host.includes('workable.com')) {
+      const subdomain = host.split('.')[0]
+      if (subdomain && subdomain !== 'www' && subdomain !== 'jobs') {
+        return toTitleCase(subdomain)
+      }
+    }
+
+    if (host.includes('smartrecruiters.com')) {
+      return pathSegments[0] ? toTitleCase(pathSegments[0]) : undefined
+    }
+
+    if (host.includes('jobvite.com')) {
+      return pathSegments[0] ? toTitleCase(pathSegments[0]) : undefined
+    }
+
+    if (host.includes('wellfound.com')) {
+      const companyIndex = pathSegments.findIndex((segment) => segment === 'company')
+      if (companyIndex !== -1 && pathSegments[companyIndex + 1]) {
+        return toTitleCase(pathSegments[companyIndex + 1])
+      }
+    }
+
+    if (host.includes('myworkdayjobs.com')) {
+      if (pathSegments[0]) {
+        return toTitleCase(pathSegments[0])
+      }
+    }
+
+    if (host.includes('indeed.com') || host.includes('linkedin.com') || host.includes('ziprecruiter.com')) {
+      // These aggregators rarely expose the company in a stable segment.
+      return undefined
+    }
+
+    const trimmedHost = host.replace(/^www\./, '')
+    const hostParts = trimmedHost.split('.')
+    const domainRoot = hostParts.length > 2 ? hostParts[hostParts.length - 2] : hostParts[0]
+    const blockedRoots = new Set([
+      'greenhouse',
+      'lever',
+      'ashbyhq',
+      'wellfound',
+      'linkedin',
+      'indeed',
+      'ziprecruiter',
+      'glassdoor',
+      'workable',
+      'smartrecruiters',
+      'jobvite',
+      'myworkdayjobs',
+      'jobs',
+    ])
+
+    if (blockedRoots.has(domainRoot)) {
+      return undefined
+    }
+
+    return domainRoot ? toTitleCase(domainRoot) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+type CompanyBucket = {
+  keywords: string[]
+  companies: string[]
+}
+
+const COMPANY_BUCKETS: CompanyBucket[] = [
+  {
+    keywords: ['data', 'analytics', 'machine learning', 'ml', 'ai', 'scientist'],
+    companies: ['Snowflake', 'Databricks', 'Palantir', 'Anthropic', 'Airbnb'],
+  },
+  {
+    keywords: ['frontend', 'javascript', 'typescript', 'react', 'ui', 'web'],
+    companies: ['Vercel', 'Netlify', 'Canva', 'Shopify', 'Pinterest'],
+  },
+  {
+    keywords: ['backend', 'api', 'server', 'distributed', 'platform'],
+    companies: ['Cloudflare', 'HashiCorp', 'Twilio', 'DigitalOcean', 'MongoDB'],
+  },
+  {
+    keywords: ['devops', 'infrastructure', 'sre', 'platform engineering', 'observability'],
+    companies: ['Datadog', 'PagerDuty', 'GitHub', 'GitLab', 'New Relic'],
+  },
+  {
+    keywords: ['mobile', 'android', 'ios', 'swift', 'kotlin'],
+    companies: ['Spotify', 'Duolingo', 'Lyft', 'Uber', 'Headspace'],
+  },
+  {
+    keywords: ['security', 'infosec', 'appsec', 'threat', 'soc', 'zero trust'],
+    companies: ['Okta', 'CrowdStrike', 'Snyk', 'Cloudflare', '1Password'],
+  },
+  {
+    keywords: ['product manager', 'product management', 'pm'],
+    companies: ['Atlassian', 'Notion', 'Asana', 'Monday.com', 'Linear'],
+  },
+  {
+    keywords: ['designer', 'design', 'ux', 'ui', 'product design'],
+    companies: ['Figma', 'Adobe', 'Canva', 'IDEO', 'InVision'],
+  },
+  {
+    keywords: ['marketing', 'growth', 'content', 'brand', 'demand'],
+    companies: ['HubSpot', 'Klaviyo', 'Mailchimp', 'Sprout Social', 'Canva'],
+  },
+  {
+    keywords: ['sales', 'account executive', 'account manager', 'business development'],
+    companies: ['Salesforce', 'Gong', 'Outreach', 'HubSpot', 'Zendesk'],
+  },
+  {
+    keywords: ['finance', 'fintech', 'bank', 'financial'],
+    companies: ['Stripe', 'Plaid', 'Square', 'Chime', 'Robinhood'],
+  },
+  {
+    keywords: ['health', 'healthcare', 'medtech', 'clinical', 'pharma'],
+    companies: ['Teladoc', 'Walgreens Health', 'Johnson & Johnson', 'Moderna', 'One Medical'],
+  },
+  {
+    keywords: ['education', 'edtech', 'teacher', 'learning'],
+    companies: ['Duolingo', 'Coursera', 'Khan Academy', 'Udemy', 'Outschool'],
+  },
+  {
+    keywords: ['gaming', 'game', 'unity', 'unreal'],
+    companies: ['Riot Games', 'Epic Games', 'Blizzard Entertainment', 'Ubisoft', 'Supercell'],
+  },
+]
+
+const DEFAULT_COMPANIES = [
+  'Stripe',
+  'Canva',
+  'Atlassian',
+  'HubSpot',
+  'GitLab',
+  'Notion',
+  'Figma',
+  'Twilio',
+  'Airbnb',
+  'Spotify',
+]
+
+function hashString(value: string) {
+  let hash = 0
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(index)
+    hash |= 0
+  }
+  return hash
+}
+
+function pickSampleCompany(query: JobQuery, index: number) {
+  const haystack = `${query.title} ${query.query}`.toLowerCase()
+
+  for (const bucket of COMPANY_BUCKETS) {
+    if (bucket.keywords.some((keyword) => haystack.includes(keyword))) {
+      const offset = Math.abs(hashString(haystack))
+      const position = (offset + index) % bucket.companies.length
+      return bucket.companies[position]
+    }
+  }
+
+  const fallbackPosition = (Math.abs(hashString(haystack)) + index) % DEFAULT_COMPANIES.length
+  return DEFAULT_COMPANIES[fallbackPosition]
+}
+
+function normaliseCompanyName(rawCompany: string | null, link: string, query: JobQuery, index: number) {
+  const trimmed = rawCompany?.trim()
+  if (trimmed && !isGenericCompanyName(trimmed)) {
+    return trimmed
+  }
+
+  const derived = deriveCompanyFromLink(link)
+  if (derived) {
+    return derived
+  }
+
+  return pickSampleCompany(query, index)
+}
+
 function buildFallbackJobs(queries: JobQuery[], location?: string, remote?: boolean): JobPosting[] {
   const locationLabel = remote ? 'Remote' : location || 'Flexible location'
-  return queries.map((query, index) => ({
-    id: `fallback-${index}-${Date.now()}`,
-    title: query.title,
-    company: 'Explore curated opportunities',
-    location: locationLabel,
-    salary: undefined,
-    description: `Review live listings that match “${query.query}”. Use the link to launch a targeted ${remote ? 'remote' : 'location-aligned'} search.`,
-    url: synthesiseSearchUrl(query, location, remote),
-    source: 'LinkedIn search',
-    postedAt: undefined,
-  }))
+  return queries.map((query, index) => {
+    const company = pickSampleCompany(query, index)
+    return {
+      id: `fallback-${index}-${Date.now()}`,
+      title: query.title,
+      company,
+      location: locationLabel,
+      salary: undefined,
+      description: `Browse current ${query.title} openings at ${company} and similar employers. This search stays focused on ${remote ? 'remote' : locationLabel} opportunities.`,
+      url: synthesiseSearchUrl(query, location, remote),
+      source: 'LinkedIn search',
+      postedAt: undefined,
+    }
+  })
 }
 
 export async function generateJobsWithGemini({
@@ -198,6 +446,7 @@ export async function generateJobsWithGemini({
 Hard requirements:
 - Every link must be an https URL to a reputable job board search or company careers page aligned with the role (LinkedIn, Indeed, Wellfound, Greenhouse, Lever, Ashby, etc.).
 - If you do not know an exact posting, construct a pre-filled job search URL that includes the relevant keywords and location.
+- \`company\` must be the name of a specific employer (e.g. "Canva", "HubSpot"). Generic phrases like "Various companies", "Multiple employers", or "N/A" are strictly forbidden.
 - Descriptions should be concise (<= 55 words), benefit-led, and specific to the role.
 - Do not emit markdown, explanations, or additional keys.`
 
@@ -231,11 +480,17 @@ Hard requirements:
           : remote
             ? 'Remote'
             : location ?? undefined
+        const company = normaliseCompanyName(
+          typeof job.company === 'string' ? job.company : null,
+          link,
+          fallbackQuery,
+          index,
+        )
 
         return {
           id: typeof job.id === 'string' && job.id ? job.id : `gemini-${Date.now()}-${index}`,
           title: typeof job.title === 'string' && job.title ? job.title : fallbackQuery.title,
-          company: typeof job.company === 'string' && job.company ? job.company : 'AI recommendation',
+          company,
           location: derivedLocation,
           salary: typeof job.salary === 'string' ? job.salary : undefined,
           description:
