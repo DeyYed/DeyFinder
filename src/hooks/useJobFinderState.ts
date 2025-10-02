@@ -215,7 +215,7 @@ export function useJobFinderState() {
       } else if (
         receivedJobs.every((job) => job.source && job.source.toLowerCase().includes('search'))
       ) {
-        setInfoMessage('Links open tailored searches across top job boards like LinkedIn, JobStreet, Glassdoor, Prosple, and more so you can review live postings from each employer.')
+        setInfoMessage('Links open tailored searches across top job boards like LinkedIn, Indeed, JobStreet, Glassdoor, Prosple, and more so you can review live postings from each employer.')
       } else {
         setInfoMessage('The AI found these roles with ready-to-open job board links. Re-run the analysis anytime for a fresh set.')
       }

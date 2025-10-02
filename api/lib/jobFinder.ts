@@ -260,6 +260,7 @@ const SEARCH_PROVIDERS: SearchProvider[] = [
 ]
 
 const AGGREGATOR_HOSTS = new Set(SEARCH_PROVIDERS.flatMap((provider) => provider.hosts))
+const PROVIDERS_BY_NAME = new Map(SEARCH_PROVIDERS.map((provider) => [provider.name, provider]))
 
 function findProviderForHost(hostname: string) {
   const lowerHost = hostname.toLowerCase()
@@ -598,6 +599,25 @@ function ensureCompanyLink({
     const linkIncludesCompany = companySlug ? rawLink.toLowerCase().includes(companySlug) : false
 
     if (provider) {
+      const providerSource = provider.name.replace(/\s+search$/i, '')
+      const pathLower = parsed.pathname.toLowerCase()
+      const hasJobStreetDetail = provider.name.includes('JobStreet')
+        && (/\/job\//.test(pathLower)
+          || pathLower.includes('job-detail')
+          || parsed.searchParams.has('jobId')
+          || parsed.searchParams.has('jobid'))
+        const hasIndeedDetail = provider.name.includes('Indeed')
+          && (pathLower.includes('/viewjob')
+            || parsed.searchParams.has('jk')
+            || parsed.searchParams.has('jobid'))
+
+        if (hasJobStreetDetail || hasIndeedDetail) {
+        return {
+          url: rawLink,
+          source: modelSource ?? providerSource,
+        }
+      }
+
       if (linkIncludesCompany) {
         return {
           url: rawLink,
@@ -629,14 +649,32 @@ function ensureCompanyLink({
 
 function buildFallbackJobs(queries: JobQuery[], location?: string, remote?: boolean): JobPosting[] {
   const locationLabel = remote ? 'Remote' : location || 'Flexible location'
-  const resultsPerQuery = Math.max(SEARCH_PROVIDERS.length, 5)
+  const priorityProviderNames = [
+    'LinkedIn search',
+    'Indeed search',
+    'JobStreet search',
+    'Glassdoor search',
+    'Prosple search',
+  ]
+  const priorityProviders = priorityProviderNames
+    .map((name) => PROVIDERS_BY_NAME.get(name))
+    .filter((provider): provider is SearchProvider => Boolean(provider))
+
+  const remainingProviders = SEARCH_PROVIDERS.filter(
+    (provider) => !priorityProviderNames.includes(provider.name),
+  )
+  const rotation = priorityProviders.length
+    ? [...priorityProviders, ...remainingProviders]
+    : SEARCH_PROVIDERS
+
+  const resultsPerQuery = Math.max(rotation.length, 5)
   const now = Date.now()
 
   return queries.flatMap((query, queryIndex) => {
     return Array.from({ length: resultsPerQuery }).map((_, offset) => {
-  const company = pickSampleCompany(query, queryIndex + offset)
-  const seed = hashString(`${query.title}:${query.query}:${queryIndex}:${offset}`)
-  const provider = SEARCH_PROVIDERS[Math.abs(seed) % SEARCH_PROVIDERS.length]
+      const company = pickSampleCompany(query, queryIndex + offset)
+      const seed = hashString(`${query.title}:${query.query}:${queryIndex}:${offset}`)
+      const provider = rotation[Math.abs(seed) % rotation.length]
       const url = provider.buildUrl({ query, company, location, remote })
       return {
         id: `fallback-${queryIndex}-${offset}-${now}`,
