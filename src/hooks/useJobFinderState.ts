@@ -212,8 +212,10 @@ export function useJobFinderState() {
       setCurrentPage(1)
       if (receivedJobs.length === 0) {
         setInfoMessage('No job suggestions surfaced this round. Tweak your prompt or add more detail to your resume and try again.')
-      } else if (receivedJobs.every((job) => job.source === 'LinkedIn search')) {
-        setInfoMessage('Links open tailored LinkedIn searches so you can scan real-time postings that match the AI’s queries.')
+      } else if (
+        receivedJobs.every((job) => job.source && job.source.toLowerCase().includes('search'))
+      ) {
+        setInfoMessage('Links open tailored searches across top job boards like LinkedIn, JobStreet, Glassdoor, Prosple, and more so you can review live postings from each employer.')
       } else {
         setInfoMessage('The AI found these roles with ready-to-open job board links. Re-run the analysis anytime for a fresh set.')
       }

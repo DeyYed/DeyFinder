@@ -5,7 +5,7 @@ JobFinder pairs a sleek, responsive React experience with Vercel serverless func
 ## ✨ Features
 
 - **Gemini-powered resume intelligence** – Gemini Flash 2.5 summarizes positioning, standout strengths, high-impact keywords, and next-step coaching.
-- **Automated job scouting** – Generates targeted search queries and delivers ready-to-open job board links with tailored summaries.
+- **Automated job scouting** – Generates targeted search queries and delivers ready-to-open job board links (LinkedIn, JobStreet, Glassdoor, Prosple, Indeed, etc.) with tailored summaries.
 - **Responsive, professional UI** – Modern glassmorphism layout, built-in privacy messaging, and live status indicators across desktop and mobile.
 - **Personalization controls** – Optional location and prioritization prompts refine both the AI analysis and job searches.
 - **Safe fallbacks** – If external APIs are missing, the app gracefully falls back to curated sample roles so the workflow remains demoable.
@@ -89,6 +89,7 @@ Deploy via Vercel (recommended) so the static build and serverless functions shi
 - Only PDF, DOCX, and TXT files are supported today. Extend `extractResumeText` in `api/lib/jobFinder.ts` to add more formats.
 - For local development, export `VITE_API_BASE_URL` so the frontend knows where to reach your serverless functions. In production, deploy both together on Vercel for same-origin requests.
 - Gemini requests are bounded to the first ~8 K characters of the resume to stay within context limits while remaining performant.
+- When the AI outputs generic employers, the backend now rewrites links into targeted searches per company across top boards like LinkedIn, JobStreet, Glassdoor, Prosple, and Indeed so each click stays true to the named organisation.
 
 ## ✅ Roadmap ideas
 

@@ -151,10 +151,129 @@ export async function runGeminiAnalysis({
   }
 }
 
-function synthesiseSearchUrl(query: JobQuery, location?: string, remote?: boolean) {
-  const keywords = [query.query, remote ? 'remote' : null, location?.trim()].filter(Boolean).join(' ')
-  const params = new URLSearchParams({ keywords })
-  return `https://www.linkedin.com/jobs/search/?${params.toString()}`
+type SearchProvider = {
+  name: string
+  hosts: string[]
+  buildUrl: (options: {
+    query: JobQuery
+    company?: string
+    location?: string
+    remote?: boolean
+  }) => string
+}
+
+const SEARCH_PROVIDERS: SearchProvider[] = [
+  {
+    name: 'LinkedIn search',
+    hosts: ['linkedin.com'],
+    buildUrl: ({ query, company, location, remote }) => {
+      const keywords = [company ? `${company} ${query.title}` : query.query, remote ? 'remote' : null]
+        .filter(Boolean)
+        .join(' ')
+      const params = new URLSearchParams()
+      if (keywords) params.set('keywords', keywords)
+      if (!remote && location?.trim()) params.set('location', location.trim())
+      return `https://www.linkedin.com/jobs/search/?${params.toString()}`
+    },
+  },
+  {
+    name: 'JobStreet search',
+    hosts: ['jobstreet.com'],
+    buildUrl: ({ query, company, location, remote }) => {
+      const keywords = [company ? `${company} ${query.title}` : query.query, remote ? 'work from home' : null]
+        .filter(Boolean)
+        .join(' ')
+      const params = new URLSearchParams()
+      if (keywords) params.set('keywords', keywords)
+      params.set('page', '1')
+      if (!remote && location?.trim()) params.set('locations', location.trim())
+      return `https://www.jobstreet.com/search/jobs?${params.toString()}`
+    },
+  },
+  {
+    name: 'Glassdoor search',
+    hosts: ['glassdoor.com'],
+    buildUrl: ({ query, company, location, remote }) => {
+      const keyword = [company ? `${company} ${query.title}` : query.query, remote ? 'remote' : null]
+        .filter(Boolean)
+        .join(' ')
+      const params = new URLSearchParams()
+      if (keyword) params.set('sc.keyword', keyword)
+      if (!remote && location?.trim()) {
+        params.set('locT', 'C')
+        params.set('locName', location.trim())
+      } else {
+        params.set('locT', 'N')
+        params.set('locId', '1')
+      }
+      params.set('p', '1')
+      return `https://www.glassdoor.com/Job/jobs.htm?${params.toString()}`
+    },
+  },
+  {
+    name: 'Prosple search',
+    hosts: ['prosple.com'],
+    buildUrl: ({ query, company, location, remote }) => {
+      const keywords = [company ? `${company} ${query.title}` : query.query].filter(Boolean).join(' ')
+      const params = new URLSearchParams()
+      if (keywords) params.set('keywords', keywords)
+      if (remote) {
+        params.set('location', 'Remote')
+      } else if (location?.trim()) {
+        params.set('location', location.trim())
+      }
+      return `https://prosple.com/search-jobs?${params.toString()}`
+    },
+  },
+  {
+    name: 'Indeed search',
+    hosts: ['indeed.com'],
+    buildUrl: ({ query, company, location, remote }) => {
+      const keywords = [company ? `${company} ${query.title}` : query.query, remote ? 'remote' : null]
+        .filter(Boolean)
+        .join(' ')
+      const params = new URLSearchParams()
+      if (keywords) params.set('q', keywords)
+      if (!remote && location?.trim()) params.set('l', location.trim())
+      return `https://www.indeed.com/jobs?${params.toString()}`
+    },
+  },
+]
+
+const AGGREGATOR_HOSTS = new Set(SEARCH_PROVIDERS.flatMap((provider) => provider.hosts))
+
+function findProviderForHost(hostname: string) {
+  const lowerHost = hostname.toLowerCase()
+  return SEARCH_PROVIDERS.find((provider) => provider.hosts.some((host) => lowerHost.includes(host)))
+}
+
+function selectSearchProvider(indexSeed: number) {
+  if (!SEARCH_PROVIDERS.length) {
+    throw new Error('No search providers configured.')
+  }
+  const index = Math.abs(indexSeed) % SEARCH_PROVIDERS.length
+  return SEARCH_PROVIDERS[index]
+}
+
+function buildSearchLink({
+  query,
+  company,
+  location,
+  remote,
+  seed,
+}: {
+  query: JobQuery
+  company?: string
+  location?: string
+  remote?: boolean
+  seed: number
+}) {
+  const provider = selectSearchProvider(seed)
+  const url = provider.buildUrl({ query, company, location, remote })
+  return {
+    url,
+    source: provider.name,
+  }
 }
 
 function toTitleCase(slug: string) {
@@ -163,6 +282,12 @@ function toTitleCase(slug: string) {
     .filter(Boolean)
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(' ')
+}
+
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
 }
 
 function isGenericCompanyName(name: string) {
@@ -253,7 +378,7 @@ function deriveCompanyFromLink(link: string) {
       }
     }
 
-    if (host.includes('indeed.com') || host.includes('linkedin.com') || host.includes('ziprecruiter.com')) {
+    if (Array.from(AGGREGATOR_HOSTS).some((aggregatorHost) => host.includes(aggregatorHost)) || host.includes('ziprecruiter.com')) {
       // These aggregators rarely expose the company in a stable segment.
       return undefined
     }
@@ -402,10 +527,90 @@ function normaliseCompanyName(rawCompany: string | null, link: string, query: Jo
   return pickSampleCompany(query, index)
 }
 
+function ensureCompanyLink({
+  rawLink,
+  company,
+  fallbackQuery,
+  location,
+  remote,
+  index,
+  modelSource,
+}: {
+  rawLink: string | null
+  company: string
+  fallbackQuery: JobQuery
+  location?: string
+  remote?: boolean
+  index: number
+  modelSource?: string
+}) {
+  const seed = hashString(`${fallbackQuery.title}:${fallbackQuery.query}:${index}`)
+  const fallbackLink = buildSearchLink({
+    query: fallbackQuery,
+    company,
+    location,
+    remote,
+    seed,
+  })
+
+  if (!rawLink || !rawLink.startsWith('https://')) {
+    return fallbackLink
+  }
+
+  try {
+    const parsed = new URL(rawLink)
+    const provider = findProviderForHost(parsed.hostname)
+    if (!company) {
+      return {
+        url: rawLink,
+        source: modelSource ?? provider?.name ?? fallbackLink.source,
+      }
+    }
+
+    const companySlug = slugify(company)
+    const linkIncludesCompany = companySlug ? rawLink.toLowerCase().includes(companySlug) : false
+
+    if (provider) {
+      if (linkIncludesCompany) {
+        return {
+          url: rawLink,
+          source: modelSource ?? provider.name,
+        }
+      }
+
+      return {
+        url: provider.buildUrl({ query: fallbackQuery, company, location, remote }),
+        source: provider.name,
+      }
+    }
+
+    if (linkIncludesCompany) {
+      return {
+        url: rawLink,
+        source: modelSource ?? 'AI curated',
+      }
+    }
+
+    return {
+      url: rawLink,
+      source: modelSource ?? fallbackLink.source,
+    }
+  } catch {
+    return fallbackLink
+  }
+}
+
 function buildFallbackJobs(queries: JobQuery[], location?: string, remote?: boolean): JobPosting[] {
   const locationLabel = remote ? 'Remote' : location || 'Flexible location'
   return queries.map((query, index) => {
     const company = pickSampleCompany(query, index)
+    const { url, source } = buildSearchLink({
+      query,
+      company,
+      location,
+      remote,
+      seed: hashString(`${query.title}:${query.query}:${index}`),
+    })
     return {
       id: `fallback-${index}-${Date.now()}`,
       title: query.title,
@@ -413,8 +618,8 @@ function buildFallbackJobs(queries: JobQuery[], location?: string, remote?: bool
       location: locationLabel,
       salary: undefined,
       description: `Browse current ${query.title} openings at ${company} and similar employers. This search stays focused on ${remote ? 'remote' : locationLabel} opportunities.`,
-      url: synthesiseSearchUrl(query, location, remote),
-      source: 'LinkedIn search',
+      url,
+      source,
       postedAt: undefined,
     }
   })
@@ -444,7 +649,7 @@ export async function generateJobsWithGemini({
   )} appealing job opportunities. Reply strictly in minified JSON with the schema:
 {"jobs": [{"title": string, "company": string, "location": string, "salary": string?, "description": string, "link": string, "source": string?}]}.
 Hard requirements:
-- Every link must be an https URL to a reputable job board search or company careers page aligned with the role (LinkedIn, Indeed, Wellfound, Greenhouse, Lever, Ashby, etc.).
+- Every link must be an https URL to a reputable job board search or company careers page aligned with the role (LinkedIn, Indeed, Wellfound, Greenhouse, Lever, Ashby, JobStreet, Glassdoor, Prosple, etc.).
 - If you do not know an exact posting, construct a pre-filled job search URL that includes the relevant keywords and location.
 - \`company\` must be the name of a specific employer (e.g. "Canva", "HubSpot"). Generic phrases like "Various companies", "Multiple employers", or "N/A" are strictly forbidden.
 - Descriptions should be concise (<= 55 words), benefit-led, and specific to the role.
@@ -474,7 +679,6 @@ Hard requirements:
       .map((job: Record<string, unknown>, index: number) => {
         const fallbackQuery = queries[index % queries.length]
         const rawLink = typeof job.link === 'string' ? job.link : null
-        const link = rawLink && rawLink.startsWith('https://') ? rawLink : synthesiseSearchUrl(fallbackQuery, location, remote)
         const derivedLocation = typeof job.location === 'string' && job.location.trim()
           ? job.location
           : remote
@@ -482,10 +686,21 @@ Hard requirements:
             : location ?? undefined
         const company = normaliseCompanyName(
           typeof job.company === 'string' ? job.company : null,
-          link,
+          rawLink ?? '',
           fallbackQuery,
           index,
         )
+        const { url, source } = ensureCompanyLink({
+          rawLink,
+          company,
+          fallbackQuery,
+          location,
+          remote,
+          index,
+          modelSource: typeof job.source === 'string' ? job.source : undefined,
+        })
+
+        const displaySource = source ? source.replace(/gemini/gi, 'AI curated') : 'AI curated'
 
         return {
           id: typeof job.id === 'string' && job.id ? job.id : `gemini-${Date.now()}-${index}`,
@@ -497,10 +712,8 @@ Hard requirements:
             typeof job.description === 'string' && job.description
               ? job.description
               : `Review opportunities that align with ${fallbackQuery.title}.`,
-          url: link,
-          source: typeof job.source === 'string' && job.source
-            ? job.source.replace(/gemini/gi, 'AI curated')
-            : 'AI curated',
+          url,
+          source: displaySource,
           postedAt: undefined,
         }
       })
