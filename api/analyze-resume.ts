@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { extractResumeText, runGeminiAnalysis, truncateContent } from './lib/jobFinder'
+import { extractResumeText, runGeminiAnalysis, truncateContent } from './lib/jobFinder.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {

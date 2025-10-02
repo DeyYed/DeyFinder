@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { generateJobsWithGemini, type JobQuery } from '../lib/jobFinder'
+import { generateJobsWithGemini, type JobQuery } from '../lib/jobFinder.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
