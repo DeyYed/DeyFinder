@@ -178,16 +178,35 @@ const SEARCH_PROVIDERS: SearchProvider[] = [
   },
   {
     name: 'JobStreet search',
-    hosts: ['jobstreet.com'],
+    hosts: [
+      'jobstreet.com',
+      'jobstreet.com.sg',
+      'jobstreet.com.my',
+      'jobstreet.com.ph',
+      'jobstreet.co.id',
+      'jobstreet.co.th',
+      'jobstreet.co',
+    ],
     buildUrl: ({ query, company, location, remote }) => {
-      const keywords = [company ? `${company} ${query.title}` : query.query, remote ? 'work from home' : null]
-        .filter(Boolean)
-        .join(' ')
-      const params = new URLSearchParams()
-      if (keywords) params.set('keywords', keywords)
-      params.set('page', '1')
-      if (!remote && location?.trim()) params.set('locations', location.trim())
-      return `https://www.jobstreet.com/search/jobs?${params.toString()}`
+      const base = (() => {
+        if (!location) {
+          return 'https://www.jobstreet.com.my/en'
+        }
+        const normalised = location.toLowerCase()
+        if (/(singapore|sg)/.test(normalised)) return 'https://www.jobstreet.com.sg/en'
+        if (/(philippines|manila|ph)/.test(normalised)) return 'https://www.jobstreet.com.ph/en'
+        if (/(malaysia|kuala|my)/.test(normalised)) return 'https://www.jobstreet.com.my/en'
+        if (/(indonesia|jakarta|id)/.test(normalised)) return 'https://www.jobstreet.co.id/en'
+        if (/(thailand|bangkok|th)/.test(normalised)) return 'https://www.jobstreet.co.th/en'
+        if (/(australia|au|sydney|melbourne)/.test(normalised)) return 'https://www.jobstreet.com.au/en'
+        return 'https://www.jobstreet.com.my/en'
+      })()
+
+      const keywordSlug = kebabCase(company ? `${company} ${query.title}` : query.query) || 'technology'
+      const locationSlug = !remote && location?.trim() ? kebabCase(location) : ''
+      const path = locationSlug ? `${keywordSlug}-jobs-in-${locationSlug}` : `${keywordSlug}-jobs`
+      const sortParam = remote ? '&work-from-home=1' : ''
+      return `${base}/job-search/${path}/?sort=recent${sortParam}`
     },
   },
   {
@@ -288,6 +307,14 @@ function slugify(value: string) {
   return value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '')
+}
+
+function kebabCase(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-')
 }
 
 function isGenericCompanyName(name: string) {
@@ -655,6 +682,7 @@ Hard requirements:
 - \`company\` must be the name of a specific employer (e.g. "Canva", "HubSpot"). Generic phrases like "Various companies", "Multiple employers", or "N/A" are strictly forbidden.
 - Descriptions should be concise (<= 55 words), benefit-led, and specific to the role.
 - Avoid duplicates—each job should reference a distinct combination of company + link unless it's a different office/region.
+- Prioritize fresh opportunities (posted within the last 30 days) and prefer search URLs sorted by recency when exact postings appear stale.
 - Do not emit markdown, explanations, or additional keys.`
 
   const prompt = `${instruction}\n\nSearch directives:\n${directives}\n\nPreferred location: ${locationLine}\nRemote preference: ${remoteLine}`
